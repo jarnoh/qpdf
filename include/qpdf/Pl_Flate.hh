@@ -37,6 +37,9 @@ class Pl_Flate: public Pipeline
     action_e action;
     bool initialized;
     void* zdata;
+
+    unsigned char* inbuf; /* additional buffer for zopfli input */
+    size_t inbuf_size;
 };
 
 #endif // __PL_FLATE_HH__

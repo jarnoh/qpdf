@@ -3,12 +3,34 @@
 
 #include <qpdf/QUtil.hh>
 
+#define USE_ZOPFLI 1
+
+#if USE_ZOPFLI
+// quick hack, link zopfli here
+extern "C" {
+#include "../zopfli/src/zopfli/zopfli.h"
+#include "../zopfli/src/zopfli/blocksplitter.c"
+#include "../zopfli/src/zopfli/cache.c"
+#include "../zopfli/src/zopfli/deflate.c"
+#include "../zopfli/src/zopfli/hash.c"
+#include "../zopfli/src/zopfli/gzip_container.c"
+#include "../zopfli/src/zopfli/katajainen.c"
+#include "../zopfli/src/zopfli/lz77.c"
+#include "../zopfli/src/zopfli/squeeze.c"
+#include "../zopfli/src/zopfli/tree.c"
+#include "../zopfli/src/zopfli/util.c"
+#include "../zopfli/src/zopfli/zlib_container.c"
+#include "../zopfli/src/zopfli/zopfli_lib.c"
+}
+#endif
+
 Pl_Flate::Pl_Flate(char const* identifier, Pipeline* next,
 		   action_e action, int out_bufsize) :
     Pipeline(identifier, next),
     out_bufsize(out_bufsize),
     action(action),
-    initialized(false)
+    initialized(false),
+    inbuf(0), inbuf_size(0)
 {
     this->outbuf = new unsigned char[out_bufsize];
     // Indirect through zdata to reach the z_stream so we don't have
@@ -37,6 +59,11 @@ Pl_Flate::~Pl_Flate()
     }
     delete static_cast<z_stream*>(this->zdata);
     this->zdata = 0;
+    
+#if USE_ZOPFLI
+    free(inbuf); inbuf = 0;
+#endif
+    
 }
 
 void
@@ -69,7 +96,17 @@ Pl_Flate::handleData(unsigned char* data, int len, int flush)
     z_stream& zstream = *(static_cast<z_stream*>(this->zdata));
     zstream.next_in = data;
     zstream.avail_in = len;
-
+#if USE_ZOPFLI
+    if (this->action == a_deflate)
+    {
+        inbuf = static_cast<unsigned char*>(realloc(inbuf, inbuf_size+len));
+        if(!inbuf) throw std::runtime_error("realloc failed");
+        memcpy(inbuf+inbuf_size, data, len);
+        inbuf_size += len;
+        return;
+    }
+#endif
+    
     if (! this->initialized)
     {
 	int err = Z_OK;
@@ -157,6 +194,28 @@ Pl_Flate::handleData(unsigned char* data, int len, int flush)
 void
 Pl_Flate::finish()
 {
+#if USE_ZOPFLI
+    if (this->action == a_deflate)
+    {
+        ZopfliOptions options;
+        ZopfliInitOptions(&options);
+        
+        unsigned char* out = 0;
+        size_t out_size = 0;
+
+        ZopfliCompress(&options, ZOPFLI_FORMAT_ZLIB, inbuf, inbuf_size, &out, &out_size);
+        free(inbuf); inbuf = 0;
+
+        if(inbuf_size!=0 && out_size==0) throw std::runtime_error("zopfli failed");
+
+        this->getNext()->write(out, out_size);
+        this->getNext()->finish();
+        free(out); out = 0;
+        
+        return;
+    }
+#endif
+    
     if (this->outbuf)
     {
 	if (this->initialized)

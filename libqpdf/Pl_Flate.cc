@@ -8,6 +8,7 @@
 #if USE_ZOPFLI
 // quick hack, link zopfli here
 extern "C" {
+#define adler32 zopfli_adler32
 #include "../zopfli/src/zopfli/zopfli.h"
 #include "../zopfli/src/zopfli/blocksplitter.c"
 #include "../zopfli/src/zopfli/cache.c"
@@ -21,6 +22,7 @@ extern "C" {
 #include "../zopfli/src/zopfli/util.c"
 #include "../zopfli/src/zopfli/zlib_container.c"
 #include "../zopfli/src/zopfli/zopfli_lib.c"
+#undef adler32
 }
 #endif
 
